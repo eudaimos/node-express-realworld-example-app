@@ -1,0 +1,35 @@
+{
+  "routes": {
+    "all": false,
+    "user": {
+      "all": false,
+      "get": true,
+      "put": true,
+      "post": true,
+      "login": {
+        "post": false
+      }
+    },
+    "articles": {
+      "all": false,
+      "get": false,
+      "feed": {
+        "get": false
+      },
+      "post": false,
+      "article": {
+        "get": false,
+        "put": false,
+        "favorite": {
+          "post": false,
+          "delete": false
+        },
+        "comments": {
+          "get": false,
+          "post": false,
+          "delete": false
+        }
+      }
+    }
+  }
+}

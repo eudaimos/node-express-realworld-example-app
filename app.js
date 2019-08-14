@@ -9,10 +9,18 @@ var http = require('http'),
     errorhandler = require('errorhandler'),
     mongoose = require('mongoose');
 
+// var redis = require('./redis');
+
 var isProduction = process.env.NODE_ENV === 'production';
 
 // Create global app object
 var app = express();
+
+
+// const wireTaoJsToSocketIO = require('@tao.js/socket.io');
+// var Server = require('http').Server;
+// var IO = require('socket.io');
+
 
 app.use(cors());
 
@@ -41,6 +49,12 @@ require('./models/User');
 require('./models/Article');
 require('./models/Comment');
 require('./config/passport');
+
+require('./tao');
+const tao = require('@tao.js/core');
+const { default: TAO, AppCtx } = tao;
+
+TAO.setCtx({ t: 'app', a: 'init', o: 'anon' }, { app: { name: 'conduit api' }});
 
 app.use(require('./routes'));
 
@@ -78,7 +92,19 @@ app.use(function(err, req, res, next) {
   }});
 });
 
+
 // finally, let's start our server...
 var server = app.listen( process.env.PORT || 3000, function(){
   console.log('Listening on port ' + server.address().port);
 });
+
+// var server = Server(app);
+// var io = IO(server);
+
+// wireTaoJsToSocketIO(TAO, io, {
+//   // onConnect: initClientTAO
+// });
+
+// server.listen( process.env.PORT || 3000, function(){
+//   console.log('Listening on port ' + server.address().port);
+// });

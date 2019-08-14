@@ -1,22 +1,38 @@
+const tao = require('@tao.js/core');
+// const Transponder = require('@tao.js/utils').Transponder;
+const Channel = require('@tao.js/utils').Channel;
+const { default: TAO } = tao;
 var router = require('express').Router();
 var mongoose = require('mongoose');
 var Article = mongoose.model('Article');
 var Comment = mongoose.model('Comment');
 var User = mongoose.model('User');
 var auth = require('../auth');
+const features = require('../../features.json').routes;
+
+function getTokenFromHeader(req){
+  if (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Token' ||
+      req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Bearer') {
+    return req.headers.authorization.split(' ')[1];
+  }
+  return null;
+}
 
 // Preload article objects on routes with ':article'
-router.param('article', function(req, res, next, slug) {
-  Article.findOne({ slug: slug})
-    .populate('author')
-    .then(function (article) {
-      if (!article) { return res.sendStatus(404); }
+if (!features.articles.all && !features.articles.article.get) {
+  router.param('article', function(req, res, next, slug) {
+    Article.findOne({ slug: slug})
+      .populate('author')
+      .then(function (article) {
+        if (!article) { return res.sendStatus(404); }
 
-      req.article = article;
+        req.article = article;
 
-      return next();
-    }).catch(next);
-});
+        return next();
+      }).catch(next);
+    // return;
+  });
+}
 
 router.param('comment', function(req, res, next, id) {
   Comment.findById(id).then(function(comment){
@@ -29,61 +45,79 @@ router.param('comment', function(req, res, next, id) {
 });
 
 router.get('/', auth.optional, function(req, res, next) {
-  var query = {};
-  var limit = 20;
-  var offset = 0;
+  if (!features.articles.all && !features.articles.get) {
+    var query = {};
+    var limit = 20;
+    var offset = 0;
 
-  if(typeof req.query.limit !== 'undefined'){
-    limit = req.query.limit;
+    if(typeof req.query.limit !== 'undefined'){
+      limit = req.query.limit;
+    }
+
+    if(typeof req.query.offset !== 'undefined'){
+      offset = req.query.offset;
+    }
+
+    if( typeof req.query.tag !== 'undefined' ){
+      query.tagList = {"$in" : [req.query.tag]};
+    }
+
+    Promise.all([
+      req.query.author ? User.findOne({username: req.query.author}) : null,
+      req.query.favorited ? User.findOne({username: req.query.favorited}) : null
+    ]).then(function(results){
+      var author = results[0];
+      var favoriter = results[1];
+
+      if(author){
+        query.author = author._id;
+      }
+
+      if(favoriter){
+        query._id = {$in: favoriter.favorites};
+      } else if(req.query.favorited){
+        query._id = {$in: []};
+      }
+
+      return Promise.all([
+        Article.find(query)
+          .limit(Number(limit))
+          .skip(Number(offset))
+          .sort({createdAt: 'desc'})
+          .populate('author')
+          .exec(),
+        Article.count(query).exec(),
+        req.payload ? User.findById(req.payload.id) : null,
+      ]).then(function(results){
+        var articles = results[0];
+        var articlesCount = results[1];
+        var user = results[2];
+
+        return res.json({
+          articles: articles.map(function(article){
+            return article.toJSONFor(user);
+          }),
+          articlesCount: articlesCount
+        });
+      });
+    }).catch(next);
+    return;
+  }
+  const find = {};
+  if (typeof req.query.limit !== 'undefined'){
+    find.limit = Number(req.query.limit);
   }
 
-  if(typeof req.query.offset !== 'undefined'){
-    offset = req.query.offset;
+  if (typeof req.query.offset !== 'undefined'){
+    find.offset = Number(req.query.offset);
   }
 
-  if( typeof req.query.tag !== 'undefined' ){
+  let term = 'article';
+  if (typeof req.query.tag !== 'undefined' ){
     query.tagList = {"$in" : [req.query.tag]};
   }
 
-  Promise.all([
-    req.query.author ? User.findOne({username: req.query.author}) : null,
-    req.query.favorited ? User.findOne({username: req.query.favorited}) : null
-  ]).then(function(results){
-    var author = results[0];
-    var favoriter = results[1];
 
-    if(author){
-      query.author = author._id;
-    }
-
-    if(favoriter){
-      query._id = {$in: favoriter.favorites};
-    } else if(req.query.favorited){
-      query._id = {$in: []};
-    }
-
-    return Promise.all([
-      Article.find(query)
-        .limit(Number(limit))
-        .skip(Number(offset))
-        .sort({createdAt: 'desc'})
-        .populate('author')
-        .exec(),
-      Article.count(query).exec(),
-      req.payload ? User.findById(req.payload.id) : null,
-    ]).then(function(results){
-      var articles = results[0];
-      var articlesCount = results[1];
-      var user = results[2];
-
-      return res.json({
-        articles: articles.map(function(article){
-          return article.toJSONFor(user);
-        }),
-        articlesCount: articlesCount
-      });
-    });
-  }).catch(next);
 });
 
 router.get('/feed', auth.required, function(req, res, next) {
@@ -137,16 +171,62 @@ router.post('/', auth.required, function(req, res, next) {
   }).catch(next);
 });
 
-// return a article
-router.get('/:article', auth.optional, function(req, res, next) {
-  Promise.all([
-    req.payload ? User.findById(req.payload.id) : null,
-    req.article.populate('author').execPopulate()
-  ]).then(function(results){
-    var user = results[0];
+const resolveArticleParts = (anon, resolve) => ({ article, user }) => {
+  if (anon && article) {
+    resolve(article.toJSONFor(null));
+  }
+  else if (!article || !user) {
+    return;
+  }
+  resolve(article.toJSONFor(user));
+}
 
-    return res.json({article: req.article.toJSONFor(user)});
-  }).catch(next);
+const logger = console;
+function channelLogger(id) {
+  return (tao, data) => {
+    logger.groupCollapsed(`☯[${id}]{${tao.t}, ${tao.a}, ${tao.o}}:`);
+    logger.info(`${tao.t}:\n`, data[tao.t]);
+    logger.info(`${tao.a}:\n`, data[tao.a]);
+    logger.info(`${tao.o}:\n`, data[tao.o]);
+    logger.groupEnd();
+
+  }
+}
+
+// return a article
+router.get('/:article', auth.optional, async function(req, res, next) {
+  if (!features.articles.all && !features.articles.article.get) {
+    Promise.all([
+      req.payload ? User.findById(req.payload.id) : null,
+      req.article.populate('author').execPopulate()
+    ]).then(function(results){
+      var user = results[0];
+
+      return res.json({article: req.article.toJSONFor(user)});
+    }).catch(next);
+    return;
+  }
+  const token = getTokenFromHeader(req);
+  const channel = new Channel(TAO);
+  const parts = {};
+  const portal = req.payload && req.payload.id ? { token, userId: req.payload.id } : null;
+  const returnArticle = await new Promise((resolve, reject) => {
+    const toResolve = resolveArticleParts(!portal, resolve);
+    channel.addInlineHandler({ t: 'article', a: 'retrieve' }, (tao, data) => {
+      const { retrieve } = data;
+      parts.article = retrieve;
+      toResolve(parts);
+    });
+    channel.addInlineHandler({ t: 'user', a: 'retrieve', o: 'portal' }, (tao, data) => {
+      const { retrieve, portal } = data;
+      parts.user = retrieve;
+      toResolve(parts);
+    });
+    channel.setCtx({ t: 'article', a: 'find', o: !portal ? 'anon' : 'portal' },
+      { article: { slug: req.params.article }, portal }
+    );
+  });
+  res.json({ article: returnArticle });
 });
 
 // update article

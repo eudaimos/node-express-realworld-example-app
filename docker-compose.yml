@@ -1,0 +1,25 @@
+version: '3.6'
+services:
+  conduitdb:
+    container_name: conduit_mongodb
+    image: mongo:4.0
+    ports:
+      - "27017:27017"
+    volumes:
+      - conduitdb-primary:/data
+  conduit-cache:
+    container_name: conduit_redis
+    image: redis:4.0-alpine
+    command: redis-server --appendonly yes
+    ports:
+      - 6379:6379
+    volumes:
+      - conduit-redis:/data
+    sysctls:
+      net.core.somaxconn: 511
+
+volumes:
+  conduitdb-primary:
+    driver: local
+  conduit-redis:
+    driver: local

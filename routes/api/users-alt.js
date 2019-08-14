@@ -28,7 +28,7 @@ router.get('/user', auth.required, async function(req, res, next){
   }
   const token = getTokenFromHeader(req);
   const transponder = new Transponder(TAO, undefined, 3000);
-  transponder.addInlineHandler({ t: 'user', a: 'retrieve', o: 'portal' }, (tao, data) => {
+  transponder.addInlineHandler({ t: 'user', a: 'enter', o: 'portal' }, (tao, data) => {
     const { user } = data;
     res.json({ user });
   })
@@ -44,8 +44,7 @@ router.get('/user', auth.required, async function(req, res, next){
     await transponder.setCtx({ t: 'user', a: 'find', o: 'portal' }, { portal: { token, userId: req.payload.id }});
   } catch (toErr) {
     console.error(toErr);
-    toErr.status = 408;
-    next(toErr);
+    res.sendStatus(408);
   }
 });
 
@@ -150,6 +149,7 @@ router.post('/users', async function(req, res, next){
     res.sendStatus(400);
     return next();
   }
+  const token = getTokenFromHeader(req);
   const transponder = new Transponder(TAO, undefined, 3000);
   transponder.addInlineHandler({ t: 'user', a: 'stored', o: 'anon' }, (tao, data) => {
     const { user } = data;
