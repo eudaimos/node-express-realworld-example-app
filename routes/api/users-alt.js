@@ -1,177 +1,173 @@
-const tao = require('@tao.js/core');
-const Transponder = require('@tao.js/utils').Transponder;
-const { default: TAO } = tao;
-var mongoose = require('mongoose');
-var router = require('express').Router();
-var passport = require('passport');
-var User = mongoose.model('User');
-var auth = require('../auth');
-const features = require('../../features.json').routes;
+// const Transponder = require("@tao.js/utils").Transponder;
+var router = require("express").Router();
+var passport = require("passport");
+var auth = require("../auth");
+const features = require("../../config/features.json").routes;
+const { authTo401, getPortal } = require("../util");
 
-function getTokenFromHeader(req){
-  if (req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Token' ||
-      req.headers.authorization && req.headers.authorization.split(' ')[0] === 'Bearer') {
-    return req.headers.authorization.split(' ')[1];
-  }
-  return null;
+// Find the current logged in user -> {user,find,portal} => {user,retrieve,portal} | {user,fail,portal}
+if (features.user.all || features.user.get) {
+  router.get("/user", auth.required, async function (req, res, next) {
+    const portal = getPortal(req);
+    if (!portal) {
+      return authTo401(res);
+    }
+    const channel = req.channel;
+    channel.addInlineHandler(
+      { t: "user", a: "load", o: "portal" },
+      (tao, data) => {
+        const { user } = data;
+        res.json({ user });
+      }
+    );
+    channel.addInlineHandler(
+      { t: "auth", a: "miss", o: "portal" },
+      (tao, data) => {
+        authTo401(res);
+      }
+    );
+    channel.addInlineHandler(
+      { t: "user", a: "miss", o: "portal" },
+      (tao, data) => {
+        authTo401(res);
+      }
+    );
+    channel.addInlineHandler(
+      { t: "auth", a: "fail", o: "portal" },
+      (tao, data) => {
+        authTo401(res);
+      }
+    );
+    channel.addInlineHandler(
+      { t: "user", a: "fail", o: "portal" },
+      (tao, data) => {
+        const { fail, portal } = data;
+        if (fail.auth) {
+          authTo401(res);
+        } else {
+          next(fail.error || fail.message);
+        }
+      }
+    );
+    channel.setCtx(
+      { t: "user", a: "locate", o: "portal" },
+      {
+        user: { id: req.payload.id },
+        portal,
+      }
+    );
+  });
 }
 
-router.get('/user', auth.required, async function(req, res, next){
-  if (!features.user.all && !features.user.get) {
-    // console.log('req.payload:', req);
-    User.findById(req.payload.id).then(function(user){
-      if(!user){ return res.sendStatus(401); }
-
-      return res.json({user: user.toAuthJSON()});
-    }).catch(next);
-    return;
-  }
-  const token = getTokenFromHeader(req);
-  const transponder = new Transponder(TAO, undefined, 3000);
-  transponder.addInlineHandler({ t: 'user', a: 'enter', o: 'portal' }, (tao, data) => {
-    const { user } = data;
-    res.json({ user });
-  })
-  transponder.addInlineHandler({ t: 'user', a: 'fail', o: 'portal' }, (tao, data) => {
-      const { fail, portal } = data;
-      if (fail.auth) {
-        res.sendStatus(401);
-      } else {
-        next(fail.error);
-      }
-    });
-  try {
-    await transponder.setCtx({ t: 'user', a: 'find', o: 'portal' }, { portal: { token, userId: req.payload.id }});
-  } catch (toErr) {
-    console.error(toErr);
-    res.sendStatus(408);
-  }
-});
-
-router.put('/user', auth.required, async function(req, res, next){
-  if (!features.user.all && !features.user.put) {
-    User.findById(req.payload.id).then(function(user){
-      if(!user){ return res.sendStatus(401); }
-
-      // only update fields that were actually passed...
-      if(typeof req.body.user.username !== 'undefined'){
-        user.username = req.body.user.username;
-      }
-      if(typeof req.body.user.email !== 'undefined'){
-        user.email = req.body.user.email;
-      }
-      if(typeof req.body.user.bio !== 'undefined'){
-        user.bio = req.body.user.bio;
-      }
-      if(typeof req.body.user.image !== 'undefined'){
-        user.image = req.body.user.image;
-      }
-      if(typeof req.body.user.password !== 'undefined'){
-        user.setPassword(req.body.user.password);
-      }
-
-      return user.save().then(function(){
-        return res.json({user: user.toAuthJSON()});
-      });
-    }).catch(next);
-    return;
-  }
-  const { user: update } = req.body;
-  if (!update) {
-    res.sendStatus(400);
-    return next();
-  }
-  const token = getTokenFromHeader(req);
-  const transponder = new Transponder(TAO, undefined, 3000);
-  transponder.addInlineHandler({ t: 'user', a: 'stored', o: 'portal' }, (tao, data) => {
-    const { user } = data;
-    res.json({ user });
-  });
-  transponder.addInlineHandler({ t: 'user', a: 'fail', o: 'portal' }, (tao, data) => {
-    const { fail, portal } = data;
-    if (fail.auth) {
-      res.sendStatus(401);
-    } else {
-      next(fail.error);
+// Update the current logged in user -> {user,update,portal} => {user,stored,portal} | {user,fail,portal}
+if (features.user.all || features.user.put) {
+  router.put("/user", auth.required, async function (req, res, next) {
+    const { user: update } = req.body;
+    if (!update) {
+      res.sendStatus(400);
+      return next();
     }
-  });
-  try {
-    await transponder.setCtx(
-      { t: 'user', a: 'update', o: 'portal' },
-      { update, portal: { token, userId: req.payload.id } }
+    const portal = getPortal(req);
+    if (!portal) {
+      authTo401(res);
+      return next();
+    }
+    const channel = req.channel;
+    channel.addInlineHandler(
+      { t: "user", a: "load", o: "portal" },
+      (tao, data) => {
+        const { user } = data;
+        res.json({ user });
+      }
     );
-  } catch (toErr) {
-    console.error(toErr);
-    res.sendStatus(408);
-  }
-
-});
-
-router.post('/users/login', function(req, res, next){
-  if (!features.user.all && !features.user.login.post) {
-    if(!req.body.user.email){
-      return res.status(422).json({errors: {email: "can't be blank"}});
-    }
-
-    if(!req.body.user.password){
-      return res.status(422).json({errors: {password: "can't be blank"}});
-    }
-
-    passport.authenticate('local', {session: false}, function(err, user, info){
-      if(err){ return next(err); }
-
-      if(user){
-        user.token = user.generateJWT();
-        return res.json({user: user.toAuthJSON()});
-      } else {
-        return res.status(422).json(info);
+    channel.addInlineHandler(
+      { t: "user", a: "fail", o: "portal" },
+      (tao, data) => {
+        const { fail, portal } = data;
+        if (fail.auth) {
+          authTo401(res);
+        } else {
+          next(fail.error);
+        }
       }
-    })(req, res, next);
-    return;
-  }
-});
-
-router.post('/users', async function(req, res, next){
-  if (!features.user.all && !features.user.post) {
-    var user = new User();
-
-    user.username = req.body.user.username;
-    user.email = req.body.user.email;
-    user.setPassword(req.body.user.password);
-
-    user.save().then(function(){
-      return res.json({user: user.toAuthJSON()});
-    }).catch(next);
-    return;
-  }
-  const { user: add } = req.body;
-  if (!add) {
-    res.sendStatus(400);
-    return next();
-  }
-  const token = getTokenFromHeader(req);
-  const transponder = new Transponder(TAO, undefined, 3000);
-  transponder.addInlineHandler({ t: 'user', a: 'stored', o: 'anon' }, (tao, data) => {
-    const { user } = data;
-    res.json({ user });
-  });
-  transponder.addInlineHandler({ t: 'user', a: 'fail', o: 'anon' }, (tao, data) => {
-    const { fail } = data;
-    if (fail.auth) {
-      res.sendStatus(401);
-    } else {
-      next(fail.error);
-    }
-  });
-  try {
-    await transponder.setCtx(
-      { t: 'user', a: 'add', o: 'anon' },
-      { add }
     );
-  } catch (toErr) {
-    console.error(toErr);
-    res.sendStatus(408);
-  }
-});
+    channel.addInlineHandler(
+      { t: "user", a: "miss", o: "portal" },
+      (tao, data) => {
+        authTo401(res);
+      }
+    );
+    channel.setCtx(
+      { t: "user", a: "update", o: "portal" },
+      { user: { id: req.payload.id }, update, portal }
+    );
+  });
+}
+
+// Log a user in -> {user,find,anon} => {user,retrieve,portal} | {user,fail,anon}
+if (features.user.login.post) {
+  router.post("/users/login", function (req, res, next) {
+    const {
+      body: { user },
+      channel,
+    } = req;
+    channel.addInlineHandler(
+      { t: "user", a: "load", o: "anon" },
+      (tao, data) => {
+        res.json({ user: data.user });
+      }
+    );
+    channel.addInlineHandler(
+      { t: "user", a: "invalid", o: "anon" },
+      (tao, data) => {
+        res.status(422).json(data.invalid);
+      }
+    );
+    channel.addInlineHandler(
+      { t: "user", a: "fail", o: "anon" },
+      (tao, data) => {
+        next(data.fail.error);
+      }
+    );
+    channel.setCtx({ t: "user", a: "find", o: "anon" }, { user });
+  });
+}
+
+// Register a new user -> {user,add,anon} => {user,stored,anon|portal} | {user,fail,anon}
+if (features.user.all || features.user.post) {
+  router.post("/users", async function (req, res, next) {
+    const { user: add } = req.body;
+    if (!add) {
+      res.sendStatus(400);
+      return next();
+    }
+    const channel = req.channel;
+    channel.addInlineHandler(
+      { t: "user", a: "stored", o: "anon" },
+      (tao, data) => {
+        const { user } = data;
+        res.json({ user });
+      }
+    );
+    channel.addInlineHandler(
+      { t: "user", a: "invalid", o: "anon" },
+      (tao, data) => {
+        res.status(422).json(data.invalid);
+      }
+    );
+    channel.addInlineHandler(
+      { t: "user", a: "fail", o: "anon" },
+      (tao, data) => {
+        const { fail } = data;
+        if (fail.auth) {
+          authTo401(res);
+        } else {
+          next(fail.error);
+        }
+      }
+    );
+    channel.setCtx({ t: "user", a: "add", o: "anon" }, { add });
+  });
+}
 
 module.exports = router;
