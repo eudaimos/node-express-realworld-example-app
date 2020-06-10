@@ -7,7 +7,7 @@
       "put": true,
       "post": true,
       "login": {
-        "post": false
+        "post": true
       }
     },
     "articles": {
@@ -30,6 +30,9 @@
           "delete": false
         }
       }
+    },
+    "tags": {
+      "get": true
     }
   }
 }

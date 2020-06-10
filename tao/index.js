@@ -1,3 +1,6 @@
-require('./logger');
-require('./users');
-require('./articles');
+require("./logger");
+require("./auth");
+require("./users");
+require("./tags");
+require("./articles");
+require("./profiles");
