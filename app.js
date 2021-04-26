@@ -8,6 +8,7 @@ var http = require("http"),
   passport = require("passport"),
   errorhandler = require("errorhandler"),
   mongoose = require("mongoose");
+var util = require("util");
 
 // var redis = require('./redis');
 
@@ -53,6 +54,8 @@ if (isProduction) {
 const tao = require("@tao.js/core");
 const Channel = require("@tao.js/utils").Channel;
 const { default: TAO } = tao;
+
+console.log(util.inspect({ TAO }, true, 3, true));
 
 app.use((req, res, next) => {
   const channel = new Channel(TAO);

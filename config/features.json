@@ -10,9 +10,17 @@
         "post": true
       }
     },
-    "articles": {
+    "profiles": {
       "all": false,
       "get": false,
+      "follow": {
+        "post": false,
+        "delete": false
+      }
+    },
+    "articles": {
+      "all": false,
+      "get": true,
       "feed": {
         "get": false
       },
@@ -20,6 +28,7 @@
       "article": {
         "get": false,
         "put": false,
+        "delete": false,
         "favorite": {
           "post": false,
           "delete": false

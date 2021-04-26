@@ -11,8 +11,6 @@ function getTokenFromHeader(req) {
   return null;
 }
 
-// export { getTokenFromHeader };
-
 function authTo401(res) {
   return () => res.sendStatus(401);
 }
